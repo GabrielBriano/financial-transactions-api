@@ -20,6 +20,8 @@ O projeto simula o motor principal de um serviço financeiro responsável por re
 - Redis
 - RabbitMQ
 - Serilog
+- Elasticsearch
+- Kibana
 - Health Checks
 
 ---
@@ -38,6 +40,8 @@ O projeto simula o motor principal de um serviço financeiro responsável por re
 - Cache de consulta de conta com Redis
 - Invalidação automática do cache após novas transações
 - Health Check da aplicação
+- Logs estruturados com Serilog
+- Centralização e consulta de logs com Elasticsearch e Kibana
 - Testes unitários e de integração
 
 ---
@@ -110,7 +114,7 @@ Contém as implementações de infraestrutura:
 
 ### FinancialTransactions.Api
 
-Contém os controllers, contratos HTTP, configuração da aplicação, Swagger, Health Checks e injeção de dependência.
+Contém os controllers, contratos HTTP, configuração da aplicação, Swagger, Health Checks, configuração de logs estruturados com Serilog e injeção de dependência.
 
 ---
 
@@ -325,6 +329,18 @@ Health Check:
 http://localhost:8080/health
 ```
 
+Elasticsearch:
+
+```txt
+http://localhost:9200
+```
+
+Kibana:
+
+```txt
+http://localhost:5601
+```
+
 RabbitMQ Management:
 
 ```txt
@@ -428,6 +444,61 @@ PostgreSQL atualiza saldo e histórico
 O endpoint síncrono `POST /api/transactions` foi mantido como fluxo principal, garantindo uma resposta imediata para o processamento da transação.
 
 O endpoint assíncrono retorna `202 Accepted`, indicando que o evento foi aceito para processamento.
+
+---
+
+## Observabilidade com Elasticsearch e Kibana
+
+A aplicação utiliza logs estruturados com Serilog e envia os eventos de log para o Elasticsearch por meio do pacote `Elastic.Serilog.Sinks`.
+
+Os logs são armazenados em um data stream dedicado:
+
+```txt
+logs-financial-transactions-development
+```
+
+O ambiente também sobe o Kibana para consulta visual dos logs.
+
+URLs:
+
+```txt
+Elasticsearch: http://localhost:9200
+Kibana: http://localhost:5601
+```
+
+Data View sugerido no Kibana:
+
+```txt
+logs-financial-transactions-*
+```
+
+Campo de tempo:
+
+```txt
+@timestamp
+```
+
+Exemplos de buscas úteis no Kibana Discover:
+
+```txt
+Financial transaction processed successfully
+Duplicated financial transaction ignored
+Financial transaction rejected due to insufficient funds
+```
+
+Campos estruturados disponíveis para análise:
+
+```txt
+EventId
+AccountId
+Type
+Amount
+CurrentBalance
+Application
+Environment
+```
+
+O Elasticsearch é usado como camada de observabilidade e centralização de logs. O processamento das transações financeiras continua dependendo do PostgreSQL como fonte da verdade.
 
 ---
 
@@ -751,13 +822,27 @@ A aplicação invalida o cache sempre que uma transação é processada, evitand
 
 ---
 
+### Por que Elasticsearch e Kibana?
+
+O Elasticsearch e o Kibana foram adicionados como diferencial de observabilidade.
+
+A API gera logs estruturados com Serilog, permitindo rastrear eventos importantes do fluxo financeiro, como:
+
+- transações processadas com sucesso
+- eventos duplicados ignorados
+- rejeições por saldo insuficiente
+- mensagens publicadas e processadas via RabbitMQ
+
+Com o Kibana, esses logs podem ser consultados visualmente por período, mensagem e campos estruturados como `EventId`, `AccountId`, `Type`, `Amount` e `CurrentBalance`.
+
+---
+
 ## Trade-offs e possíveis evoluções
 
 - Capturar exceções de unique constraint em duplicidade concorrente extrema e retornar `Duplicated`.
 - Usar `INSERT ... ON CONFLICT DO NOTHING` na criação concorrente de contas.
 - Adicionar DLQ para mensagens com falha definitiva no RabbitMQ.
 - Adicionar métricas com Prometheus/Grafana.
-- Adicionar Elasticsearch/Kibana para centralização de logs estruturados.
 - Adicionar autenticação/autorização.
 - Adicionar paginação no histórico de transações.
 - Adicionar correlation id para rastreabilidade ponta a ponta.
@@ -772,4 +857,4 @@ A solução entrega:
 - Requisitos técnicos
 - Testes automatizados
 - Execução via Docker Compose
-- Diferenciais opcionais com Redis, RabbitMQ e Health Checks
+- Diferenciais opcionais com Redis, RabbitMQ, Health Checks, Elasticsearch e Kibana
