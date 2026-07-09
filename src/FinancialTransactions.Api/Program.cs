@@ -1,17 +1,48 @@
+using Elastic.Ingest.Elasticsearch;
+using Elastic.Ingest.Elasticsearch.DataStreams;
+using Elastic.Serilog.Sinks;
 using FinancialTransactions.Application;
 using FinancialTransactions.Infrastructure;
 using FinancialTransactions.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using Serilog.Debugging;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, configuration) =>
+SelfLog.Enable(message => Console.Error.WriteLine($"SERILOG SELFLOG: {message}"));
+
+var elasticsearchUri = builder.Configuration["Elasticsearch:Uri"];
+
+var loggerConfiguration = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "FinancialTransactions.Api")
+    .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
+    .WriteTo.Console();
+
+if (!string.IsNullOrWhiteSpace(elasticsearchUri))
 {
-    configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .WriteTo.Console();
-});
+    loggerConfiguration = loggerConfiguration.WriteTo.Elasticsearch(
+        new[] { new Uri(elasticsearchUri) },
+        options =>
+        {
+            options.DataStream = new DataStreamName(
+                "logs",
+                "financial-transactions",
+                builder.Environment.EnvironmentName.ToLowerInvariant());
+
+            options.BootstrapMethod = BootstrapMethod.None;
+        });
+}
+
+Log.Logger = loggerConfiguration.CreateLogger();
+
+builder.Host.UseSerilog();
 
 builder.Services.AddControllers();
 

@@ -37,11 +37,27 @@ namespace FinancialTransactions.Application.Transactions
             ProcessTransactionCommand command,
             CancellationToken cancellationToken)
         {
+            _logger.LogInformation(
+                "Starting financial transaction processing. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}, OccurredAt: {OccurredAt}",
+                command.EventId,
+                command.AccountId,
+                command.Type,
+                command.Amount,
+                command.OccurredAt);
+
             var validationResult = await _validator.ValidateAsync(command, cancellationToken);
 
             if (!validationResult.IsValid)
             {
                 var message = string.Join(" | ", validationResult.Errors.Select(error => error.ErrorMessage));
+
+                _logger.LogWarning(
+                    "Financial transaction validation failed. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}, ValidationErrors: {ValidationErrors}",
+                    command.EventId,
+                    command.AccountId,
+                    command.Type,
+                    command.Amount,
+                    message);
 
                 return ProcessTransactionResult.Invalid(
                     command.EventId,
@@ -61,10 +77,12 @@ namespace FinancialTransactions.Application.Transactions
 
                 if (alreadyProcessed)
                 {
-                    _logger.LogInformation(
-                        "Duplicated transaction ignored. EventId: {EventId}, AccountId: {AccountId}",
+                    _logger.LogWarning(
+                        "Duplicated financial transaction ignored. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}",
                         command.EventId,
-                        command.AccountId);
+                        command.AccountId,
+                        command.Type,
+                        command.Amount);
 
                     result = ProcessTransactionResult.Duplicated(
                         command.EventId,
@@ -82,6 +100,11 @@ namespace FinancialTransactions.Application.Transactions
                     account = new Account(command.AccountId);
 
                     await _accountRepository.AddAsync(account, ct);
+
+                    _logger.LogInformation(
+                        "Account created for financial transaction. AccountId: {AccountId}, EventId: {EventId}",
+                        command.AccountId,
+                        command.EventId);
                 }
 
                 try
@@ -90,6 +113,14 @@ namespace FinancialTransactions.Application.Transactions
                 }
                 catch (DomainException ex) when (ex.Message == "Insufficient funds.")
                 {
+                    _logger.LogWarning(
+                        "Financial transaction rejected due to insufficient funds. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}, CurrentBalance: {CurrentBalance}",
+                        command.EventId,
+                        command.AccountId,
+                        command.Type,
+                        command.Amount,
+                        account.Balance);
+
                     result = ProcessTransactionResult.InsufficientFunds(
                         command.EventId,
                         command.AccountId,
@@ -115,13 +146,24 @@ namespace FinancialTransactions.Application.Transactions
                 await _cacheService.RemoveAsync(CacheKeys.Account(command.AccountId), ct);
 
                 _logger.LogInformation(
-                    "Transaction processed. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}, Balance: {Balance}",
+                    "Financial transaction processed successfully. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}, CurrentBalance: {CurrentBalance}, OccurredAt: {OccurredAt}",
                     command.EventId,
                     command.AccountId,
                     command.Type,
                     command.Amount,
-                    account.Balance);
+                    account.Balance,
+                    command.OccurredAt);
             }, cancellationToken);
+
+            if (result is null)
+            {
+                _logger.LogError(
+                    "Financial transaction could not be processed. EventId: {EventId}, AccountId: {AccountId}, Type: {Type}, Amount: {Amount}",
+                    command.EventId,
+                    command.AccountId,
+                    command.Type,
+                    command.Amount);
+            }
 
             return result ?? ProcessTransactionResult.Invalid(
                 command.EventId,
