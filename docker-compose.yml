@@ -1,0 +1,66 @@
+services:
+  financialtransactions.api:
+    container_name: financialtransactions-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=financial_transactions;Username=postgres;Password=postgres
+      Redis__ConnectionString: redis:6379
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      RabbitMq__QueueName: financial-transactions
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  postgres:
+    container_name: financialtransactions-postgres
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: financial_transactions
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - financialtransactions-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d financial_transactions"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    container_name: financialtransactions-redis
+    image: redis:7
+    restart: always
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    container_name: financialtransactions-rabbitmq
+    image: rabbitmq:3-management
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  financialtransactions-postgres-data:
